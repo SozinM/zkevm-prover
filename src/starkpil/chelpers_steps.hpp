@@ -5,7 +5,15 @@
 
 class CHelpersSteps {
 public:
-    virtual void storePolinomial(Goldilocks::Element* pols, __m256i* bufferT, uint64_t* nColsSteps, uint64_t *offsetsSteps, uint64_t *buffTOffsetsSteps, uint64_t *nextStrides, uint64_t nOpenings, uint64_t domainSize, bool domainExtended, uint64_t nStages, bool needModule, uint64_t row, uint64_t stage, uint64_t stagePos, uint64_t openingPointIndex, uint64_t dim) {
+    inline virtual void storeImPolinomials(StarkInfo &starkInfo, StepsParams &params, __m256i *bufferT_, uint64_t row, uint64_t* nColsSteps, uint64_t* nColsStepsAccumulated, uint64_t* offsetsSteps) {
+        uint64_t s = starkInfo.nStages;
+        uint64_t firstImPolIndex = 0; // TODO
+        for(uint64_t k = firstImPolIndex; k < nColsSteps[s]; ++k) {
+            Goldilocks::store_avx(&params.pols[offsetsSteps[s] + k + row * nColsSteps[s]], nColsSteps[s], bufferT_[(nColsStepsAccumulated[s] + k)]);
+        }
+    }
+
+    virtual void storePolinomial(Goldilocks::Element *pols, __m256i *bufferT, uint64_t* nColsSteps, uint64_t *offsetsSteps, uint64_t *buffTOffsetsSteps, uint64_t *nextStrides, uint64_t nOpenings, uint64_t domainSize, bool domainExtended, uint64_t nStages, bool needModule, uint64_t row, uint64_t stage, uint64_t stagePos, uint64_t openingPointIndex, uint64_t dim) {
         if(needModule) {
             uint64_t offsetsDest[4];
             uint64_t nextStrideOffset = row + nextStrides[openingPointIndex];
@@ -28,15 +36,12 @@ public:
         }
     }
 
-    virtual void calculateExpressions(Goldilocks::Element* dest, StarkInfo &starkInfo, StepsParams &params, ParserArgs &parserArgs, ParserParams &parserParams, uint32_t nrowsBatch, bool domainExtended) {
+    virtual void calculateExpressions(Goldilocks::Element *dest, StarkInfo &starkInfo, StepsParams &params, ParserArgs &parserArgs, ParserParams &parserParams, uint32_t nrowsBatch, bool domainExtended) {
         uint64_t domainSize = domainExtended ? 1 << starkInfo.starkStruct.nBitsExt : 1 << starkInfo.starkStruct.nBits;
         uint64_t extendBits = (starkInfo.starkStruct.nBitsExt - starkInfo.starkStruct.nBits);
         int64_t extend = domainExtended ? (1 << extendBits) : 1;
         Goldilocks::Element *x = domainExtended ? params.x_2ns : params.x_n;
         ConstantPolsStarks *constPols = domainExtended ? params.pConstPols2ns : params.pConstPols;
-        Goldilocks3::Element_avx challenges[starkInfo.challengesMap.size()];
-        Goldilocks3::Element_avx challenges_ops[starkInfo.challengesMap.size()];
-
         uint8_t *ops = &parserArgs.ops[parserParams.opsOffset];
 
         uint16_t *args = &parserArgs.args[parserParams.argsOffset]; 
@@ -45,9 +50,9 @@ public:
 
         uint16_t* cmPolsUsed = &parserArgs.cmPolsIds[parserParams.cmPolsOffset];
 
-        uint16_t* constPolsUsed = &parserArgs.constPolsIds[parserParams.constPolsOffset];
+        uint16_t* cmPolsCalculated = &parserArgs.cmPolsCalculatedIds[parserParams.cmPolsCalculatedOffset];
 
-        __m256i numbers_[parserParams.nNumbers];
+        uint16_t* constPolsUsed = &parserArgs.constPolsIds[parserParams.constPolsOffset];
 
         uint64_t nStages = starkInfo.nStages;
         uint64_t nOpenings = starkInfo.openingPoints.size();
@@ -75,18 +80,17 @@ public:
             buffTOffsetsSteps_[stage] = buffTOffsetsSteps_[stage - 1] + nOpenings*nColsSteps[stage - 1];
             nCols += nColsSteps[stage];
         }
-        
         if(domainExtended) {
             std::string section = "cm" + to_string(nStages + 1);
             offsetsSteps[nStages + 1] = starkInfo.mapOffsets[std::make_pair(section, true)];
             nColsSteps[nStages + 1] = starkInfo.mapSectionsN[section];
-            
             nColsStepsAccumulated[nStages + 1] = nColsStepsAccumulated[nStages] + nColsSteps[nStages];
             buffTOffsetsSteps_[nStages + 1] = buffTOffsetsSteps_[nStages] + nOpenings*nColsSteps[nStages];
             nCols += nColsSteps[nStages + 1];
         }
 
-    #pragma omp parallel for
+        Goldilocks3::Element_avx challenges[starkInfo.challengesMap.size()];
+        Goldilocks3::Element_avx challenges_ops[starkInfo.challengesMap.size()];
         for(uint64_t i = 0; i < starkInfo.challengesMap.size(); ++i) {
             challenges[i][0] = _mm256_set1_epi64x(params.challenges[i * FIELD_EXTENSION].fe);
             challenges[i][1] = _mm256_set1_epi64x(params.challenges[i * FIELD_EXTENSION + 1].fe);
@@ -101,19 +105,17 @@ public:
             challenges_ops[i][2] =  _mm256_set1_epi64x(challenges_aux[2].fe);
         }
 
-    #pragma omp parallel for
+        __m256i numbers_[parserParams.nNumbers];
         for(uint64_t i = 0; i < parserParams.nNumbers; ++i) {
             numbers_[i] = _mm256_set1_epi64x(numbers[i]);
         }
 
         __m256i publics[starkInfo.nPublics];
-    #pragma omp parallel for
         for(uint64_t i = 0; i < starkInfo.nPublics; ++i) {
             publics[i] = _mm256_set1_epi64x(params.publicInputs[i].fe);
         }
 
         Goldilocks3::Element_avx subproofValues[starkInfo.nSubProofValues];
-    #pragma omp parallel for
         for(uint64_t i = 0; i < starkInfo.nSubProofValues; ++i) {
             subproofValues[i][0] = _mm256_set1_epi64x(params.subproofValues[i * FIELD_EXTENSION].fe);
             subproofValues[i][1] = _mm256_set1_epi64x(params.subproofValues[i * FIELD_EXTENSION + 1].fe);
@@ -121,7 +123,6 @@ public:
         }
 
         Goldilocks3::Element_avx evals[starkInfo.evMap.size()];
-    #pragma omp parallel for
         for(uint64_t i = 0; i < starkInfo.evMap.size(); ++i) {
             evals[i][0] = _mm256_set1_epi64x(params.evals[i * FIELD_EXTENSION].fe);
             evals[i][1] = _mm256_set1_epi64x(params.evals[i * FIELD_EXTENSION + 1].fe);
@@ -1079,6 +1080,9 @@ public:
                     Goldilocks::store_avx(&dest[i*FIELD_EXTENSION + 2], uint64_t(FIELD_EXTENSION), tmp3[parserParams.destId][2]);
                 }
             }
+            // if(parserParams.nCmPolsCalculated > 0) {
+            //     storePolinomials(starkInfo, params, bufferT_, storePol, i, nrowsPack, domainExtended);
+            // }
             if (i_args != parserParams.nArgs) std::cout << " " << i_args << " - " << parserParams.nArgs << std::endl;
             assert(i_args == parserParams.nArgs);
         }

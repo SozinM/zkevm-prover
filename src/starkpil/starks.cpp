@@ -217,7 +217,7 @@ void Starks<ElementType>::calculateImPolsExpressions(StepsParams &params, CHelpe
         cout << chelpers.imPolsInfo.destDim << endl;
         chelpersSteps->calculateExpressions(nullptr, starkInfo, params, chelpers.cHelpersArgsImPols, chelpers.imPolsInfo, nrowsBatch, false);
         for(uint64_t i = 0; i < chelpers.imPolsInfo.nCmPolsCalculated; i++) {
-            uint64_t cmPolCalculatedId = chelpers.cHelpersArgs.cmPolsCalculatedIds[chelpers.imPolsInfo.cmPolsCalculatedOffset + i];
+            uint64_t cmPolCalculatedId = chelpers.cHelpersArgsImPols.cmPolsCalculatedIds[chelpers.imPolsInfo.cmPolsCalculatedOffset + i];
             setSymbolCalculated(opType::cm, cmPolCalculatedId);
         }
     }
